@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>BookTracker - Home</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white font-sans min-h-screen">
+    <nav class="p-6 flex justify-between items-center max-w-6xl mx-auto">
+        <h1 class="text-2xl font-bold tracking-tighter">Guardini Librini</h1>
+        <a href="/library" class="text-gray-400 hover:text-white transition">Biblioteca →</a>
+    </nav>
+
+    <main id="mainContent" class="flex flex-col items-center">
+        <section class="min-h-[70vh] flex flex-col items-center justify-center px-4 w-full text-center">
+            <h2 class="text-6xl font-bold mb-4 tracking-tight">Tu biblioteca personal</h2>
+            <p class="text-gray-400 mb-8">Busca cualquier libro y agrégalo a tu colección</p>
+            
+            <form onsubmit="searchBooks(event)" class="w-full max-w-lg flex gap-2">
+                <input type="text" id="query" placeholder="Nombre del libro..." 
+                    class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:border-gray-500 text-white">
+                <button type="submit" class="bg-white text-black font-bold px-6 py-3 rounded-lg hover:bg-gray-200 transition">Buscar</button>
+            </form>
+            <p class="text-xs text-gray-500 mt-4 uppercase tracking-widest">Presiona Enter o haz clic para buscar</p>
+        </section>
+
+        <section id="resultsSection" class="hidden w-full bg-gray-800 py-20 px-4">
+            <div class="max-w-4xl mx-auto">
+                <h3 class="text-2xl font-bold mb-10">Resultados de búsqueda</h3>
+                <div id="resultsList" class="space-y-4"></div>
+            </div>
+        </section>
+    </main>
+
+    <div id="modalWrapper" class="hidden fixed inset-0 w-full h-full bg-gray-950/95 flex items-center justify-center z-50 p-4 backdrop-blur-md">
+        <div class="bg-white text-black p-8 rounded-2xl max-w-lg w-full shadow-2xl overflow-y-auto max-h-[90vh]">
+            <div id="modalContent"></div>
+        </div>
+    </div>
+
+<script>
+    let selectedBook = null;
+
+    async function searchBooks(e) {
+        e.preventDefault();
+        const q = document.getElementById('query').value;
+        if(!q) return;
+
+        const btn = e.target.querySelector('button');
+        btn.innerText = "Buscando...";
+        btn.disabled = true;
+
+        try {
+            const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+            const books = await res.json();
+            
+            const section = document.getElementById('resultsSection');
+            const list = document.getElementById('resultsList');
+            
+            section.classList.remove('hidden');
+            list.innerHTML = books.map((b, index) => {
+                // Guardamos cada libro en una ventana temporal para evitar problemas de comillas
+                window[`book_${index}`] = b; 
+                
+                return `
+                    <div class="flex items-center justify-between bg-gray-900/50 p-4 rounded-xl border border-gray-700">
+                        <div class="flex items-center gap-4">
+                            <img src="${b.thumbnail || 'https://via.placeholder.com/40x56'}" class="w-10 h-14 object-cover rounded shadow">
+                            <div>
+                                <p class="font-bold text-white">${b.title}</p>
+                                <p class="text-sm text-gray-400">${b.author}</p>
+                            </div>
+                        </div>
+                        <button onclick="openModal(window.book_${index})" 
+                            class="bg-white text-black px-4 py-2 rounded-lg font-bold text-sm hover:bg-gray-200 transition">
+                            Agregar
+                        </button>
+                    </div>
+                `;
+            }).join('');
+            section.scrollIntoView({ behavior: 'smooth' });
+        } catch (err) {
+            console.error(err);
+            alert("Error al buscar.");
+        } finally {
+            btn.innerText = "Buscar";
+            btn.disabled = false;
+        }
+    }
+
+    function openModal(book) {
+        selectedBook = book;
+        const modal = document.getElementById('modalWrapper');
+        const content = document.getElementById('modalContent');
+        
+        const descripcionLarga = book.description && book.description.length > 500 
+            ? book.description.substring(0, 500) + "..." 
+            : (book.description || "Sin descripción.");
+
+        content.innerHTML = `
+            <div class="flex gap-4 mb-6 text-black">
+                <img src="${book.thumbnail || 'https://via.placeholder.com/80x112'}" class="w-24 h-36 object-cover rounded shadow-lg">
+                <div>
+                    <h4 class="font-bold text-xl leading-tight">${book.title}</h4>
+                    <p class="text-gray-500 text-sm mb-2">${book.author}</p>
+                    <span class="bg-blue-100 text-blue-700 text-[10px] px-2 py-1 rounded-md font-bold uppercase">
+                        ${book.categories || 'General'}
+                    </span>
+                </div>
+            </div>
+            <div class="text-sm text-gray-600 mb-6 leading-relaxed border-t border-b py-4">
+                <p class="italic text-gray-400 mb-1">Resumen:</p>
+                ${descripcionLarga}
+            </div>
+            <p class="font-bold mb-6 text-center text-black">¿Agregar a tu biblioteca?</p>
+            <div class="flex flex-col gap-2">
+                <button id="confirmBtn" onclick="confirmAdd()" class="bg-black text-white py-3 rounded-xl font-bold hover:bg-gray-800 transition">Sí, agregar</button>
+                <button onclick="closeModal()" class="text-gray-400 py-2 text-sm font-medium hover:text-black transition">Cancelar</button>
+            </div>
+            <div id="modalMsg" class="text-center mt-4 font-bold h-4"></div>
+        `;
+        
+        modal.classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal() {
+        document.getElementById('modalWrapper').classList.add('hidden');
+        document.body.style.overflow = 'auto';
+    }
+
+    async function confirmAdd() {
+        if (!selectedBook) return;
+        const msg = document.getElementById('modalMsg');
+        const btn = document.getElementById('confirmBtn');
+        
+        btn.innerText = "Guardando...";
+        btn.disabled = true;
+
+        try {
+            const res = await fetch('/api/books', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(selectedBook)
+            });
+
+            if (res.ok) {
+                msg.innerText = "¡Agregado con éxito!";
+                msg.className = "text-green-600 text-center font-bold";
+                setTimeout(() => closeModal(), 1000);
+            } else {
+                const errData = await res.json();
+                msg.innerText = errData.error || "Error";
+                msg.className = "text-red-600 text-center font-bold";
+                btn.disabled = false;
+                btn.innerText = "Sí, agregar";
+            }
+        } catch (err) {
+            msg.innerText = "Error de red";
+            btn.disabled = false;
+        }
+    }
+</script>
+</body>
+</html>
